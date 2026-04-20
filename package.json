@@ -10,6 +10,15 @@
     "stats"
   ],
   "license": "MIT",
+  "author": "Ian Hsiao",
+  "homepage": "https://github.com/madeyexz/claude-codex-usage#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/madeyexz/claude-codex-usage.git"
+  },
+  "bugs": {
+    "url": "https://github.com/madeyexz/claude-codex-usage/issues"
+  },
   "type": "module",
   "bin": {
     "claude-codex-usage": "dist/index.js"
