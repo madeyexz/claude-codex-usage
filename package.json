@@ -1,0 +1,32 @@
+{
+  "name": "claude-codex-usage",
+  "version": "0.1.0",
+  "description": "Per-day word + message counts for Claude Code and Codex CLI sessions",
+  "keywords": [
+    "claude-code",
+    "codex",
+    "cli",
+    "usage",
+    "stats"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "claude-codex-usage": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "start": "node dist/index.js"
+  },
+  "engines": {
+    "node": ">=18.18"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}
