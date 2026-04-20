@@ -425,6 +425,18 @@ function csvEscape(v: string): string {
   return v;
 }
 
+const TYPE_WPM = 80;
+const VOICE_WPM = 100;
+const READ_WPM = 250;
+
+function formatMinutes(mins: number): string {
+  if (mins < 1) return `${Math.round(mins * 60)}s`;
+  if (mins < 60) return `${Math.round(mins)} min`;
+  const h = Math.floor(mins / 60);
+  const m = Math.round(mins % 60);
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+
 function main() {
   const args = parseCli();
   if (args.help) {
@@ -512,6 +524,28 @@ function main() {
   console.log(dataRow(activeCols, avgRow));
 
   console.log(`\nActive days: ${n}`);
+
+  // Which bucket of columns represents the user's total? Primary group (first after date).
+  const prefix = args.claudeOnly ? "cc_" : args.codexOnly ? "cx_" : "all_";
+  const avgTyped = Math.floor(totals[prefix + "user_words"]! / n);
+  const avgRead = Math.floor(totals[prefix + "asst_words"]! / n);
+
+  const typeMin = avgTyped / TYPE_WPM;
+  const voiceMin = avgTyped / VOICE_WPM;
+  const readMin = avgRead / READ_WPM;
+
+  const tool =
+    args.claudeOnly ? "Claude Code" :
+    args.codexOnly ? "Codex" :
+    "Claude Code + Codex";
+
+  console.log(
+    `\nOn an average active day with ${tool}, you type ~${avgTyped.toLocaleString()} ` +
+    `words — about ${formatMinutes(typeMin)} at ${TYPE_WPM} WPM typing, ` +
+    `or ${formatMinutes(voiceMin)} at ${VOICE_WPM} WPM if dictated. ` +
+    `The assistant sends back ~${avgRead.toLocaleString()} words — ` +
+    `roughly ${formatMinutes(readMin)} of reading at ${READ_WPM} WPM.`
+  );
 }
 
 main();
