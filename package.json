@@ -1,13 +1,21 @@
 {
   "name": "claude-codex-usage",
-  "version": "0.5.0",
-  "description": "Per-day word + message counts for Claude Code and Codex CLI sessions",
+  "version": "0.5.1",
+  "description": "Per-day word + message counts for Claude Code and Codex CLI sessions — local, zero-config",
   "keywords": [
+    "claude",
     "claude-code",
     "codex",
+    "codex-cli",
+    "ai",
+    "agent",
     "cli",
+    "tui",
+    "stats",
     "usage",
-    "stats"
+    "word-count",
+    "productivity",
+    "terminal"
   ],
   "license": "MIT",
   "author": "Ian Hsiao",
