@@ -16,6 +16,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
+import Table from "cli-table3";
+import pc from "picocolors";
 
 const HOME = os.homedir();
 const CC_ROOT = path.join(HOME, ".claude", "projects");
@@ -272,34 +274,32 @@ function scanCodex(
 
 // --- formatting ---
 
+type Group = "" | "all" | "claude" | "codex";
+
 type Column = {
   key: Key | "date";
-  group: "" | "all" | "claude" | "codex";
+  group: Group;
   name: string;
-  width: number;
 };
 
 const COLUMNS: Column[] = [
-  { key: "date", group: "", name: "date", width: 10 },
-  { key: "all_user_msgs", group: "all", name: "you_msgs", width: 10 },
-  { key: "all_user_words", group: "all", name: "you_words", width: 11 },
-  { key: "all_asst_msgs", group: "all", name: "reply_msgs", width: 11 },
-  { key: "all_asst_words", group: "all", name: "reply_words", width: 12 },
-  { key: "cc_user_msgs", group: "claude", name: "you_msgs", width: 10 },
-  { key: "cc_user_words", group: "claude", name: "you_words", width: 11 },
-  { key: "cc_asst_msgs", group: "claude", name: "reply_msgs", width: 11 },
-  { key: "cc_asst_words", group: "claude", name: "reply_words", width: 12 },
-  { key: "cx_user_msgs", group: "codex", name: "you_msgs", width: 10 },
-  { key: "cx_user_words", group: "codex", name: "you_words", width: 11 },
-  { key: "cx_asst_msgs", group: "codex", name: "reply_msgs", width: 11 },
-  { key: "cx_asst_words", group: "codex", name: "reply_words", width: 12 },
+  { key: "date",           group: "",       name: "date" },
+  { key: "all_user_msgs",  group: "all",    name: "you msgs" },
+  { key: "all_user_words", group: "all",    name: "you words" },
+  { key: "all_asst_msgs",  group: "all",    name: "reply msgs" },
+  { key: "all_asst_words", group: "all",    name: "reply words" },
+  { key: "cc_user_msgs",   group: "claude", name: "you msgs" },
+  { key: "cc_user_words",  group: "claude", name: "you words" },
+  { key: "cc_asst_msgs",   group: "claude", name: "reply msgs" },
+  { key: "cc_asst_words",  group: "claude", name: "reply words" },
+  { key: "cx_user_msgs",   group: "codex",  name: "you msgs" },
+  { key: "cx_user_words",  group: "codex",  name: "you words" },
+  { key: "cx_asst_msgs",   group: "codex",  name: "reply msgs" },
+  { key: "cx_asst_words",  group: "codex",  name: "reply words" },
 ];
 
-const COL_SEP = " ";
-const GROUP_SEP = " | ";
-
-function groupColumns(cols: Column[]): Array<[string, Column[]]> {
-  const groups: Array<[string, Column[]]> = [];
+function groupColumns(cols: Column[]): Array<[Group, Column[]]> {
+  const groups: Array<[Group, Column[]]> = [];
   let i = 0;
   while (i < cols.length) {
     const label = cols[i]!.group;
@@ -311,49 +311,79 @@ function groupColumns(cols: Column[]): Array<[string, Column[]]> {
   return groups;
 }
 
-function padLeft(s: string, w: number): string {
-  return s.length >= w ? s : " ".repeat(w - s.length) + s;
-}
-
-function padCenter(s: string, w: number): string {
-  if (s.length >= w) return s;
-  const total = w - s.length;
-  const left = Math.floor(total / 2);
-  return " ".repeat(left) + s + " ".repeat(total - left);
-}
-
 function formatNumber(n: number): string {
   return n.toLocaleString("en-US");
 }
 
-function renderRow(cellsByGroup: string[][]): string {
-  return cellsByGroup.map((cells) => cells.join(COL_SEP)).join(GROUP_SEP);
-}
+/** Build the cli-table3 table for the daily breakdown. */
+function buildTable(
+  activeCols: Column[],
+  days: string[],
+  buckets: Map<string, Bucket>,
+): { output: string; totals: Record<string, number> } {
+  const groups = groupColumns(activeCols);
+  const dataGroups = groups.slice(1); // skip the "date" group
 
-function headerRows(cols: Column[]): [string, string] {
-  const groups = groupColumns(cols);
-  const topCells: string[][] = [];
-  const botCells: string[][] = [];
-  for (const [label, gcols] of groups) {
-    const width =
-      gcols.reduce((s, c) => s + c.width, 0) +
-      (gcols.length - 1) * COL_SEP.length;
-    topCells.push([padCenter(label, width)]);
-    botCells.push(gcols.map((c) => padLeft(c.name, c.width)));
+  const table = new Table({
+    chars: {
+      top: "─", "top-mid": "┬", "top-left": "┌", "top-right": "┐",
+      bottom: "─", "bottom-mid": "┴", "bottom-left": "└", "bottom-right": "┘",
+      left: "│", "left-mid": "├", mid: "─", "mid-mid": "┼",
+      right: "│", "right-mid": "┤", middle: "│",
+    },
+    style: { "padding-left": 1, "padding-right": 1, head: [], border: [] },
+  });
+
+  // Header row 1: "date" rowSpan-2 + group labels colspan.
+  const head1: any[] = [
+    { content: pc.bold("date"), rowSpan: 2, vAlign: "center", hAlign: "center" },
+  ];
+  for (const [label, gcols] of dataGroups) {
+    head1.push({
+      content: pc.bold(label),
+      colSpan: gcols.length,
+      hAlign: "center",
+    });
   }
-  return [renderRow(topCells), renderRow(botCells)];
-}
+  // Header row 2: column names (the date cell is covered by the rowSpan).
+  const head2: any[] = [];
+  for (const [, gcols] of dataGroups) {
+    for (const c of gcols) head2.push({ content: pc.dim(c.name), hAlign: "right" });
+  }
 
-function dataRow(cols: Column[], values: Record<string, number | string>): string {
-  const groups = groupColumns(cols);
-  const byGroup: string[][] = groups.map(([, gcols]) =>
-    gcols.map((c) => {
-      const v = values[c.key];
-      const s = typeof v === "number" ? formatNumber(v) : String(v);
-      return padLeft(s, c.width);
-    }),
-  );
-  return renderRow(byGroup);
+  table.push(head1, head2);
+
+  const totals: Record<string, number> = {};
+  for (const c of activeCols.slice(1)) totals[c.key] = 0;
+
+  for (const day of days) {
+    const b = buckets.get(day)!;
+    const row: any[] = [day];
+    for (const [, gcols] of dataGroups) {
+      for (const c of gcols) {
+        const v = b[c.key as Key];
+        totals[c.key]! += v;
+        row.push({ content: formatNumber(v), hAlign: "right" });
+      }
+    }
+    table.push(row);
+  }
+
+  const n = days.length;
+  const footerRow = (label: string, value: (k: string) => number) => {
+    const row: any[] = [{ content: pc.bold(pc.dim(label)), hAlign: "center" }];
+    for (const [, gcols] of dataGroups) {
+      for (const c of gcols) {
+        row.push({ content: pc.dim(formatNumber(value(c.key))), hAlign: "right" });
+      }
+    }
+    return row;
+  };
+
+  table.push(footerRow("TOTAL", (k) => totals[k]!));
+  table.push(footerRow("AVG/day", (k) => Math.floor(totals[k]! / n)));
+
+  return { output: table.toString(), totals };
 }
 
 // --- CLI ---
@@ -478,7 +508,8 @@ function main() {
   });
 
   if (args.csv) {
-    const header = activeCols.map((c) => (c.group ? `${c.group}_${c.name}` : c.name));
+    const slug = (s: string) => s.replace(/\s+/g, "_");
+    const header = activeCols.map((c) => (c.group ? `${c.group}_${slug(c.name)}` : slug(c.name)));
     process.stdout.write(header.map(csvEscape).join(",") + "\n");
     for (const d of days) {
       const b = buckets.get(d)!;
@@ -493,46 +524,29 @@ function main() {
     process.exit(1);
   }
 
-  const [top, bot] = headerRows(activeCols);
-  const totalWidth = bot.length;
+  const { output, totals } = buildTable(activeCols, days, buckets);
+  console.log(output);
 
-  const totals: Record<string, number> = {};
-  for (const c of activeCols.slice(1)) totals[c.key] = 0;
-
-  console.log(top);
-  console.log(bot);
-  console.log("-".repeat(totalWidth));
-
-  for (const d of days) {
-    const b = buckets.get(d)!;
-    const row: Record<string, number | string> = { date: d };
-    for (const c of activeCols.slice(1)) {
-      const v = b[c.key as Key];
-      row[c.key] = v;
-      totals[c.key]! += v;
-    }
-    console.log(dataRow(activeCols, row));
-  }
-
-  console.log("-".repeat(totalWidth));
-  const totalRow: Record<string, number | string> = { date: "TOTAL", ...totals };
-  console.log(dataRow(activeCols, totalRow));
-
+  // Active days: n / m (m = days in requested window; omitted for --all).
   const n = days.length;
-  const avgRow: Record<string, number | string> = { date: "AVG/day" };
-  for (const c of activeCols.slice(1)) avgRow[c.key] = Math.floor(totals[c.key]! / n);
-  console.log(dataRow(activeCols, avgRow));
+  let windowDays: number | null = null;
+  if (!args.all) {
+    if (args.since) {
+      const today = utcDaysAgo(0);
+      const sinceMs = dayToMs(args.since);
+      const todayMs = dayToMs(today);
+      windowDays = Math.floor((todayMs - sinceMs) / 86_400_000) + 1;
+    } else {
+      windowDays = args.days ?? DEFAULT_DAYS;
+    }
+  }
+  const denom = windowDays ? ` / ${windowDays}` : "";
+  console.log(`\n${pc.bold("Active days")}: ${n}${denom}`);
 
-  console.log(`\nActive days: ${n}`);
-
-  // Which bucket of columns represents the user's total? Primary group (first after date).
+  // Summary paragraph — uses the primary (first) data group.
   const prefix = args.claudeOnly ? "cc_" : args.codexOnly ? "cx_" : "all_";
   const avgTyped = Math.floor(totals[prefix + "user_words"]! / n);
   const avgRead = Math.floor(totals[prefix + "asst_words"]! / n);
-
-  const typeMin = avgTyped / TYPE_WPM;
-  const voiceMin = avgTyped / VOICE_WPM;
-  const readMin = avgRead / READ_WPM;
 
   const tool =
     args.claudeOnly ? "Claude Code" :
@@ -540,11 +554,12 @@ function main() {
     "Claude Code + Codex";
 
   console.log(
-    `\nOn an average active day with ${tool}, you type ~${avgTyped.toLocaleString()} ` +
-    `words — about ${formatMinutes(typeMin)} at ${TYPE_WPM} WPM typing, ` +
-    `or ${formatMinutes(voiceMin)} at ${VOICE_WPM} WPM if dictated. ` +
-    `The assistant sends back ~${avgRead.toLocaleString()} words — ` +
-    `roughly ${formatMinutes(readMin)} of reading at ${READ_WPM} WPM.`
+    `\nOn an average active day with ${pc.bold(tool)}, you type ` +
+    `~${pc.yellow(avgTyped.toLocaleString())} words — about ` +
+    `${pc.cyan(formatMinutes(avgTyped / TYPE_WPM))} at ${TYPE_WPM} WPM typing, or ` +
+    `${pc.cyan(formatMinutes(avgTyped / VOICE_WPM))} at ${VOICE_WPM} WPM if dictated. ` +
+    `The assistant sends back ~${pc.yellow(avgRead.toLocaleString())} words — ` +
+    `roughly ${pc.cyan(formatMinutes(avgRead / READ_WPM))} of reading at ${READ_WPM} WPM.`,
   );
 }
 
