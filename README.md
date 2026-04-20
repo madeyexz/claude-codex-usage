@@ -41,6 +41,27 @@ By default only the last 30 days are scanned. Use `--all` for the full history.
    AVG/day |        150      15,650         606       61,180 |         66       3,866         207       22,610 |         84      11,784         399       38,570
 ```
 
+## Why `reply msgs` ≫ `you msgs`
+
+One prompt usually produces **multiple** assistant text blocks, because the
+agent narrates in between each tool call:
+
+```
+you:       "fix the bug"
+assistant: "Let me look at the stack trace first"      ← 1 text block
+           Read(...)
+assistant: "Found it — null check missing"             ← 2 text blocks
+           Edit(...)
+assistant: "Running tests now."                        ← 3 text blocks
+           Bash(...)
+assistant: "All 42 pass."                              ← 4 text blocks
+```
+
+So `reply msgs` counts **how many text chunks you have to read**, not how
+many "responses" you got. For a typical agent loop you'll see 3–5× more
+reply blocks than prompts. The word counts are still the real measure of
+reading/typing volume.
+
 ## What counts
 
 **Claude Code** — session files at `~/.claude/projects/<project>/<session>.jsonl`:

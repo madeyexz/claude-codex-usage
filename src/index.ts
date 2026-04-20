@@ -545,21 +545,33 @@ function main() {
 
   // Summary paragraph — uses the primary (first) data group.
   const prefix = args.claudeOnly ? "cc_" : args.codexOnly ? "cx_" : "all_";
-  const avgTyped = Math.floor(totals[prefix + "user_words"]! / n);
-  const avgRead = Math.floor(totals[prefix + "asst_words"]! / n);
+  const avgYouMsgs = Math.floor(totals[prefix + "user_msgs"]! / n);
+  const avgYouWords = Math.floor(totals[prefix + "user_words"]! / n);
+  const avgReplyMsgs = Math.floor(totals[prefix + "asst_msgs"]! / n);
+  const avgReplyWords = Math.floor(totals[prefix + "asst_words"]! / n);
 
   const tool =
     args.claudeOnly ? "Claude Code" :
     args.codexOnly ? "Codex" :
     "Claude Code + Codex";
+  const ratio = avgYouMsgs > 0 ? (avgReplyMsgs / avgYouMsgs).toFixed(1) : "—";
 
+  console.log(`\n${pc.bold(`On an average active day with ${tool}:`)}`);
   console.log(
-    `\nOn an average active day with ${pc.bold(tool)}, you type ` +
-    `~${pc.yellow(avgTyped.toLocaleString())} words — about ` +
-    `${pc.cyan(formatMinutes(avgTyped / TYPE_WPM))} at ${TYPE_WPM} WPM typing, or ` +
-    `${pc.cyan(formatMinutes(avgTyped / VOICE_WPM))} at ${VOICE_WPM} WPM if dictated. ` +
-    `The assistant sends back ~${pc.yellow(avgRead.toLocaleString())} words — ` +
-    `roughly ${pc.cyan(formatMinutes(avgRead / READ_WPM))} of reading at ${READ_WPM} WPM.`,
+    `  You send ${pc.yellow(avgYouMsgs.toLocaleString())} messages ` +
+    `(${pc.yellow(avgYouWords.toLocaleString())} words) — about ` +
+    `${pc.cyan(formatMinutes(avgYouWords / TYPE_WPM))} typing at ${TYPE_WPM} WPM, or ` +
+    `${pc.cyan(formatMinutes(avgYouWords / VOICE_WPM))} dictating at ${VOICE_WPM} WPM.`,
+  );
+  console.log(
+    `  You read ${pc.yellow(avgReplyMsgs.toLocaleString())} assistant text blocks ` +
+    `(${pc.yellow(avgReplyWords.toLocaleString())} words) — ` +
+    `roughly ${pc.cyan(formatMinutes(avgReplyWords / READ_WPM))} at ${READ_WPM} WPM.`,
+  );
+  console.log(
+    pc.dim(
+      `  (${ratio}× more reply blocks than prompts — the agent emits text between each tool call.)`,
+    ),
   );
 }
 
