@@ -15,14 +15,20 @@ npx claude-codex-usage
 ## Usage
 
 ```
-claude-codex-usage [--days N] [--since YYYY-MM-DD] [--csv]
+claude-codex-usage [--days N | --since YYYY-MM-DD | --all]
+                   [--claude-only | --codex-only] [--csv]
 ```
 
 Options:
 
-- `--days N` — only show the last N active days
+- `--days N` — only show the last N days (default: **30**)
 - `--since YYYY-MM-DD` — only show activity on or after that date
+- `--all` — show full history (slower; scans every session file)
+- `--claude-only` — only include Claude Code sessions
+- `--codex-only` — only include Codex sessions
 - `--csv` — emit CSV (for spreadsheets, charts, etc.)
+
+By default only the last 30 days are scanned. Use `--all` for the full history.
 
 ## Sample output
 

@@ -35,6 +35,21 @@ function cleanCcUser(s: string): string {
   return s.replace(SYSTEM_TAG_RE, "").replace(CAVEAT_RE, "").trim();
 }
 
+/** UTC midnight of the given YYYY-MM-DD, in unix ms. */
+function dayToMs(day: string): number {
+  return Date.parse(`${day}T00:00:00Z`);
+}
+
+/** Fast mtime check. Returns true if file was modified on or after cutoffMs, OR if stat fails. */
+function isAfter(file: string, cutoffMs: number | null): boolean {
+  if (cutoffMs === null) return true;
+  try {
+    return fs.statSync(file).mtimeMs >= cutoffMs;
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Yield .jsonl files at exactly `dirDepth` directory levels below `root`.
  * dirDepth=0 → files directly in root.
@@ -142,10 +157,14 @@ function readLines(file: string): string[] {
   return fs.readFileSync(file, "utf8").split("\n");
 }
 
-function scanClaudeCode(buckets: Map<string, Bucket>): void {
+function scanClaudeCode(
+  buckets: Map<string, Bucket>,
+  cutoffMs: number | null,
+): void {
   // ~/.claude/projects/<project>/<session>.jsonl — one dir level between root and file.
   // Deeper nested .jsonl files (subagent transcripts, tool-results) are skipped.
   for (const file of jsonlAtDepth(CC_ROOT, 1)) {
+    if (!isAfter(file, cutoffMs)) continue;
     let lines: string[];
     try {
       lines = readLines(file);
@@ -197,9 +216,15 @@ function scanClaudeCode(buckets: Map<string, Bucket>): void {
   }
 }
 
-function scanCodex(buckets: Map<string, Bucket>): void {
-  // ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl — 3 dir levels.
-  // ~/.codex/archived_sessions/**/rollout-*.jsonl — recursive (some are nested).
+function scanCodex(
+  buckets: Map<string, Bucket>,
+  cutoffMs: number | null,
+): void {
+  // ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl — 3 dir levels (path encodes session
+  // START date, not message date — a session started on day N can contain events from
+  // day N+k, so we can't prune directories by path. mtime filtering is correct: a file
+  // with recent activity has recent mtime regardless of start date.)
+  // ~/.codex/archived_sessions/**/rollout-*.jsonl — recursive.
   const files = [
     ...jsonlAtDepth(CX_SESSIONS, 3),
     ...jsonlRecursive(CX_ARCHIVED),
@@ -208,6 +233,7 @@ function scanCodex(buckets: Map<string, Bucket>): void {
   for (const file of files) {
     if (seen.has(file)) continue;
     seen.add(file);
+    if (!isAfter(file, cutoffMs)) continue;
     {
       let lines: string[];
       try {
@@ -332,12 +358,25 @@ function dataRow(cols: Column[], values: Record<string, number | string>): strin
 
 // --- CLI ---
 
-function parseCli(): { days?: number; since?: string; csv: boolean; help: boolean } {
+type CliArgs = {
+  days?: number;
+  since?: string;
+  csv: boolean;
+  claudeOnly: boolean;
+  codexOnly: boolean;
+  all: boolean;
+  help: boolean;
+};
+
+function parseCli(): CliArgs {
   const { values } = parseArgs({
     options: {
       days: { type: "string" },
       since: { type: "string" },
+      all: { type: "boolean", default: false },
       csv: { type: "boolean", default: false },
+      "claude-only": { type: "boolean", default: false },
+      "codex-only": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
     allowPositionals: false,
@@ -345,7 +384,10 @@ function parseCli(): { days?: number; since?: string; csv: boolean; help: boolea
   return {
     days: values.days ? Number(values.days) : undefined,
     since: values.since as string | undefined,
+    all: Boolean(values.all),
     csv: Boolean(values.csv),
+    claudeOnly: Boolean(values["claude-only"]),
+    codexOnly: Boolean(values["codex-only"]),
     help: Boolean(values.help),
   };
 }
@@ -353,14 +395,30 @@ function parseCli(): { days?: number; since?: string; csv: boolean; help: boolea
 const HELP = `claude-codex-usage — per-day word + message counts for Claude Code and Codex
 
 Usage:
-  claude-codex-usage [--days N] [--since YYYY-MM-DD] [--csv]
+  claude-codex-usage [--days N | --since YYYY-MM-DD | --all]
+                     [--claude-only | --codex-only] [--csv]
 
-Options:
-  --days N           Only show the last N active days
+Time range (default: --days 30):
+  --days N           Only show the last N days
   --since DATE       Only show activity on or after DATE (YYYY-MM-DD)
+  --all              Show the full history (may be slow on large archives)
+
+Tool selection:
+  --claude-only      Only include Claude Code sessions
+  --codex-only       Only include Codex sessions
+
+Output:
   --csv              Emit CSV instead of a formatted table
   -h, --help         Show this help
 `;
+
+const DEFAULT_DAYS = 30;
+
+function utcDaysAgo(n: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
+}
 
 function csvEscape(v: string): string {
   if (/[",\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
@@ -374,9 +432,21 @@ function main() {
     return;
   }
 
+  if (args.claudeOnly && args.codexOnly) {
+    process.stderr.write("--claude-only and --codex-only are mutually exclusive.\n");
+    process.exit(2);
+  }
+
+  // Resolve cutoff: since > days > default(30). --all clears it.
+  let cutoffDay: string | null;
+  if (args.all) cutoffDay = null;
+  else if (args.since) cutoffDay = args.since;
+  else cutoffDay = utcDaysAgo((args.days ?? DEFAULT_DAYS) - 1);
+  const cutoffMs = cutoffDay ? dayToMs(cutoffDay) : null;
+
   const buckets = new Map<string, Bucket>();
-  scanClaudeCode(buckets);
-  scanCodex(buckets);
+  if (!args.codexOnly) scanClaudeCode(buckets, cutoffMs);
+  if (!args.claudeOnly) scanCodex(buckets, cutoffMs);
 
   for (const b of buckets.values()) {
     b.all_user_msgs = b.cc_user_msgs + b.cx_user_msgs;
@@ -386,30 +456,36 @@ function main() {
   }
 
   let days = [...buckets.keys()].sort();
-  if (args.since) days = days.filter((d) => d >= args.since!);
-  if (args.days) days = days.slice(-args.days);
+  if (cutoffDay) days = days.filter((d) => d >= cutoffDay);
+
+  // Drop groups that weren't scanned (the `all` group is redundant when only one is active).
+  const activeCols = COLUMNS.filter((c) => {
+    if (args.claudeOnly) return c.group === "" || c.group === "claude";
+    if (args.codexOnly) return c.group === "" || c.group === "codex";
+    return true;
+  });
 
   if (args.csv) {
-    const header = COLUMNS.map((c) => (c.group ? `${c.group}_${c.name}` : c.name));
+    const header = activeCols.map((c) => (c.group ? `${c.group}_${c.name}` : c.name));
     process.stdout.write(header.map(csvEscape).join(",") + "\n");
     for (const d of days) {
       const b = buckets.get(d)!;
-      const row = [d, ...COLUMNS.slice(1).map((c) => String(b[c.key as Key]))];
+      const row = [d, ...activeCols.slice(1).map((c) => String(b[c.key as Key]))];
       process.stdout.write(row.map(csvEscape).join(",") + "\n");
     }
     return;
   }
 
   if (days.length === 0) {
-    process.stderr.write("No Claude Code or Codex sessions found.\n");
+    process.stderr.write("No Claude Code or Codex sessions found in range.\n");
     process.exit(1);
   }
 
-  const [top, bot] = headerRows(COLUMNS);
+  const [top, bot] = headerRows(activeCols);
   const totalWidth = bot.length;
 
   const totals: Record<string, number> = {};
-  for (const c of COLUMNS.slice(1)) totals[c.key] = 0;
+  for (const c of activeCols.slice(1)) totals[c.key] = 0;
 
   console.log(top);
   console.log(bot);
@@ -418,22 +494,22 @@ function main() {
   for (const d of days) {
     const b = buckets.get(d)!;
     const row: Record<string, number | string> = { date: d };
-    for (const c of COLUMNS.slice(1)) {
+    for (const c of activeCols.slice(1)) {
       const v = b[c.key as Key];
       row[c.key] = v;
       totals[c.key]! += v;
     }
-    console.log(dataRow(COLUMNS, row));
+    console.log(dataRow(activeCols, row));
   }
 
   console.log("-".repeat(totalWidth));
   const totalRow: Record<string, number | string> = { date: "TOTAL", ...totals };
-  console.log(dataRow(COLUMNS, totalRow));
+  console.log(dataRow(activeCols, totalRow));
 
   const n = days.length;
   const avgRow: Record<string, number | string> = { date: "AVG/day" };
-  for (const c of COLUMNS.slice(1)) avgRow[c.key] = Math.floor(totals[c.key]! / n);
-  console.log(dataRow(COLUMNS, avgRow));
+  for (const c of activeCols.slice(1)) avgRow[c.key] = Math.floor(totals[c.key]! / n);
+  console.log(dataRow(activeCols, avgRow));
 
   console.log(`\nActive days: ${n}`);
 }
