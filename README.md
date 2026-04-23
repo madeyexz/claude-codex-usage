@@ -49,11 +49,26 @@ On an average active day with Claude Code:
 
 The default view has three column groups — **all**, **claude**, **codex** — showing both tools side by side.
 
+Below the table you also get two small line charts — messages per day (claude / codex / all) and words per day (you / reply) — so you can eyeball trends without squinting at rows:
+
+```
+Messages per day   ● claude   ● codex   ● all
+   2,612 ┼     ╭╮
+   1,306 ┤  ╭╮ ││
+     980 ┤  ││ ││╭╮
+     653 ┼──╯│╭╯╰╯│╭──╮
+     327 ┼╮╭╯││╯│╭╰╯  │
+       0 ┤╰╯╯╰╯╰╰╯╰───╰
+  2026-04-10 → 2026-04-23 (14 days)
+```
+
+Pass `--no-graph` to suppress the charts, or `--csv` for data-only output.
+
 ## Usage
 
 ```
 claude-codex-usage [--days N | --since YYYY-MM-DD | --all]
-                   [--claude-only | --codex-only] [--csv]
+                   [--claude-only | --codex-only] [--csv] [--no-graph]
 ```
 
 | flag | effect |
@@ -64,6 +79,7 @@ claude-codex-usage [--days N | --since YYYY-MM-DD | --all]
 | `--claude-only` | Hide Codex columns |
 | `--codex-only` | Hide Claude Code columns |
 | `--csv` | Emit CSV instead of a table |
+| `--no-graph` | Suppress the line charts under the table |
 | `-h, --help` | Show help |
 
 ## What gets counted
@@ -118,7 +134,7 @@ bun run build          # or: npm run build
 node dist/index.js --days 7
 ```
 
-Dependencies are intentionally minimal: [`cli-table3`](https://www.npmjs.com/package/cli-table3) for borders and [`picocolors`](https://www.npmjs.com/package/picocolors) for ANSI.
+Dependencies are intentionally minimal: [`cli-table3`](https://www.npmjs.com/package/cli-table3) for borders, [`picocolors`](https://www.npmjs.com/package/picocolors) for ANSI, and [`asciichart`](https://www.npmjs.com/package/asciichart) for the line charts.
 
 ## License
 

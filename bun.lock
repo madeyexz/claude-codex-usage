@@ -4,10 +4,12 @@
     "": {
       "name": "claude-codex-usage",
       "dependencies": {
+        "asciichart": "^1.5.25",
         "cli-table3": "^0.6.5",
         "picocolors": "^1.1.1",
       },
       "devDependencies": {
+        "@types/asciichart": "^1.5.8",
         "@types/node": "^22.0.0",
         "typescript": "^5.5.0",
       },
@@ -16,9 +18,13 @@
   "packages": {
     "@colors/colors": ["@colors/colors@1.5.0", "", {}, "sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ=="],
 
+    "@types/asciichart": ["@types/asciichart@1.5.8", "", {}, "sha512-8yzgCUybv8/yUfj4WeTh7G+V+AxU7AzwsF2CrkTtARKHdrxE/EiByF2efUMj6qdm87tENucNu6pLs22RWU0H7g=="],
+
     "@types/node": ["@types/node@22.19.17", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-wGdMcf+vPYM6jikpS/qhg6WiqSV/OhG+jeeHT/KlVqxYfD40iYJf9/AE1uQxVWFvU7MipKRkRv8NSHiCGgPr8Q=="],
 
     "ansi-regex": ["ansi-regex@5.0.1", "", {}, "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ=="],
+
+    "asciichart": ["asciichart@1.5.25", "", {}, "sha512-PNxzXIPPOtWq8T7bgzBtk9cI2lgS4SJZthUHEiQ1aoIc3lNzGfUvIvo9LiAnq26TACo9t1/4qP6KTGAUbzX9Xg=="],
 
     "cli-table3": ["cli-table3@0.6.5", "", { "dependencies": { "string-width": "^4.2.0" }, "optionalDependencies": { "@colors/colors": "1.5.0" } }, "sha512-+W/5efTR7y5HRD7gACw9yQjqMVvEMLBHmboM/kPWam+H+Hmyrgjh6YncVKK122YZkXrLudzTuAukUw9FnMf7IQ=="],
 

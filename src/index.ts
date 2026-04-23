@@ -18,6 +18,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import Table from "cli-table3";
 import pc from "picocolors";
+import * as asciichart from "asciichart";
 
 const HOME = os.homedir();
 const CC_ROOT = path.join(HOME, ".claude", "projects");
@@ -315,6 +316,154 @@ function formatNumber(n: number): string {
   return n.toLocaleString("en-US");
 }
 
+/** Continuous YYYY-MM-DD range in UTC, inclusive on both ends. */
+function denseDays(start: string, end: string): string[] {
+  const out: string[] = [];
+  const startMs = dayToMs(start);
+  const endMs = dayToMs(end);
+  if (endMs < startMs) return out;
+  for (let t = startMs; t <= endMs; t += 86_400_000) {
+    out.push(new Date(t).toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+// --- Graph ---
+
+const GRAPH_HEIGHT = 8;
+const GRAPH_PAD_WIDTH = 8;
+const GRAPH_PADDING = " ".repeat(GRAPH_PAD_WIDTH);
+// asciichart renders 1 column per data point. Repeat each point `scale` times
+// to stretch the chart horizontally; capped so very-wide terminals don't look silly.
+const GRAPH_MAX_SCALE = 6;
+// y-axis label width + asciichart's default offset (3) + right margin.
+const GRAPH_LEFT_MARGIN = GRAPH_PAD_WIDTH + 3 + 3;
+
+function fmtYAxis(x: number): string {
+  return Math.round(x).toLocaleString("en-US").padStart(GRAPH_PAD_WIDTH);
+}
+
+function chartScale(points: number): number {
+  const termCols = process.stdout.columns ?? 100;
+  const available = termCols - GRAPH_LEFT_MARGIN;
+  const raw = Math.floor(available / Math.max(1, points));
+  return Math.max(1, Math.min(GRAPH_MAX_SCALE, raw));
+}
+
+function upsample(series: number[], scale: number): number[] {
+  if (scale <= 1) return series;
+  const out = new Array<number>(series.length * scale);
+  for (let i = 0; i < series.length; i++) {
+    const v = series[i]!;
+    for (let k = 0; k < scale; k++) out[i * scale + k] = v;
+  }
+  return out;
+}
+
+function dateFooter(dense: string[]): string {
+  const n = dense.length;
+  return pc.dim(`  ${dense[0]} → ${dense[n - 1]} (${n} days)`);
+}
+
+function getB(buckets: Map<string, Bucket>, day: string): Bucket {
+  return buckets.get(day) ?? emptyBucket();
+}
+
+/** Build stacked line charts (messages + words per day). Returns "" when too sparse. */
+function buildGraph(
+  args: CliArgs,
+  dense: string[],
+  buckets: Map<string, Bucket>,
+): string {
+  if (dense.length < 2) return "";
+
+  const prefix: "all" | "cc" | "cx" =
+    args.claudeOnly ? "cc" : args.codexOnly ? "cx" : "all";
+
+  const msgSum = (p: "cc" | "cx" | "all") => (b: Bucket) =>
+    b[`${p}_user_msgs` as Key] + b[`${p}_asst_msgs` as Key];
+
+  const out: string[] = [];
+
+  // Chart 1 — messages per day. 3 series in the combined view, 1 in single-tool modes.
+  const msgSeries: number[][] = [];
+  const msgColors: asciichart.Color[] = [];
+  const msgLegend: string[] = [];
+
+  const addMsgSeries = (
+    p: "cc" | "cx" | "all",
+    chartColor: asciichart.Color,
+    legendLabel: string,
+    legendColor: (s: string) => string,
+  ) => {
+    const s = dense.map((d) => msgSum(p)(getB(buckets, d)));
+    if (s.some((v) => v > 0)) {
+      msgSeries.push(s);
+      msgColors.push(chartColor);
+      msgLegend.push(legendColor("●") + " " + legendLabel);
+    }
+  };
+
+  if (prefix === "all") {
+    addMsgSeries("cc", asciichart.blue, "claude", pc.blue);
+    addMsgSeries("cx", asciichart.magenta, "codex", pc.magenta);
+    addMsgSeries("all", asciichart.white, "all", pc.white);
+  } else if (prefix === "cc") {
+    addMsgSeries("cc", asciichart.blue, "claude", pc.blue);
+  } else {
+    addMsgSeries("cx", asciichart.magenta, "codex", pc.magenta);
+  }
+
+  const scale = chartScale(dense.length);
+
+  if (msgSeries.length > 0) {
+    out.push(pc.bold("Messages per day") + "   " + msgLegend.join("   "));
+    out.push(
+      asciichart.plot(msgSeries.map((s) => upsample(s, scale)), {
+        height: GRAPH_HEIGHT,
+        colors: msgColors,
+        padding: GRAPH_PADDING,
+        format: fmtYAxis,
+      }),
+    );
+    out.push(dateFooter(dense));
+  }
+
+  // Chart 2 — words per day: you vs reply, scoped to the active tool prefix.
+  const youSeries = dense.map((d) => getB(buckets, d)[`${prefix}_user_words` as Key]);
+  const replySeries = dense.map((d) => getB(buckets, d)[`${prefix}_asst_words` as Key]);
+
+  const wordSeries: number[][] = [];
+  const wordColors: asciichart.Color[] = [];
+  const wordLegend: string[] = [];
+  if (youSeries.some((v) => v > 0)) {
+    wordSeries.push(youSeries);
+    wordColors.push(asciichart.yellow);
+    wordLegend.push(pc.yellow("●") + " you");
+  }
+  if (replySeries.some((v) => v > 0)) {
+    wordSeries.push(replySeries);
+    wordColors.push(asciichart.cyan);
+    wordLegend.push(pc.cyan("●") + " reply");
+  }
+
+  if (wordSeries.length > 0) {
+    if (out.length > 0) out.push("");
+    out.push(pc.bold("Words per day") + "      " + wordLegend.join("   "));
+    out.push(
+      asciichart.plot(wordSeries.map((s) => upsample(s, scale)), {
+        height: GRAPH_HEIGHT,
+        colors: wordColors,
+        padding: GRAPH_PADDING,
+        format: fmtYAxis,
+      }),
+    );
+    out.push(dateFooter(dense));
+  }
+
+  return out.join("\n");
+}
+
 /** Build the cli-table3 table for the daily breakdown. */
 function buildTable(
   activeCols: Column[],
@@ -395,6 +544,7 @@ type CliArgs = {
   claudeOnly: boolean;
   codexOnly: boolean;
   all: boolean;
+  noGraph: boolean;
   help: boolean;
 };
 
@@ -407,6 +557,7 @@ function parseCli(): CliArgs {
       csv: { type: "boolean", default: false },
       "claude-only": { type: "boolean", default: false },
       "codex-only": { type: "boolean", default: false },
+      "no-graph": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
     allowPositionals: false,
@@ -418,6 +569,7 @@ function parseCli(): CliArgs {
     csv: Boolean(values.csv),
     claudeOnly: Boolean(values["claude-only"]),
     codexOnly: Boolean(values["codex-only"]),
+    noGraph: Boolean(values["no-graph"]),
     help: Boolean(values.help),
   };
 }
@@ -426,7 +578,7 @@ const HELP = `claude-codex-usage — per-day word + message counts for Claude Co
 
 Usage:
   claude-codex-usage [--days N | --since YYYY-MM-DD | --all]
-                     [--claude-only | --codex-only] [--csv]
+                     [--claude-only | --codex-only] [--csv] [--no-graph]
 
 Time range (default: --days 30):
   --days N           Only show the last N days
@@ -439,6 +591,7 @@ Tool selection:
 
 Output:
   --csv              Emit CSV instead of a formatted table
+  --no-graph         Suppress the line chart below the table
   -h, --help         Show this help
 `;
 
@@ -526,6 +679,12 @@ function main() {
 
   const { output, totals } = buildTable(activeCols, days, buckets);
   console.log(output);
+
+  if (!args.noGraph) {
+    const graphStart = cutoffDay ?? days[0]!;
+    const graph = buildGraph(args, denseDays(graphStart, utcDaysAgo(0)), buckets);
+    if (graph) console.log("\n" + graph);
+  }
 
   // Active days: n / m (m = days in requested window; omitted for --all).
   const n = days.length;
